@@ -104,7 +104,7 @@ class zDecisionTreeSuperclass(ABC):
         # build the tree doing recursive calls
         current_depth += 1
         
-        print("Depth: ", current_depth - 1, " Decision feature ", best_node.decision_feature_index)
+        # print("Depth: ", current_depth - 1, " Decision feature ", best_node.decision_feature_index)
     
         best_node.set_left_child(self.fit_rec(X_left, y_left, current_depth))
         best_node.set_right_child(self.fit_rec(X_right, y_right, current_depth))
@@ -212,7 +212,7 @@ if __name__ == "__main__":
 
     # my own class is compatible with sklearn :)
     # pip = make_pipeline(zStandardScaler(), zDecisionTreeClassifier(max_depth=5, min_samples_split=5))
-    pip = zDecisionTreeClassifier2(max_depth=5, min_samples_split=2)
+    pip = zDecisionTreeClassifier(max_depth=5, min_samples_split=2)
     pip.fit(X_train, y_train)
     print(pip.score(X_train, y_train)) # scores do not change, because feature scaling does not affect decision trees
     print(pip.score(X_test, y_test))
@@ -242,3 +242,4 @@ if __name__ == "__main__":
 
 # TODO : add set params and get params method
 # TODO : add more hyperparameters
+# TODO : docstrings
