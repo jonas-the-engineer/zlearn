@@ -9,43 +9,10 @@ if __name__ == "__main__":
     from sklearn.datasets import load_iris, load_diabetes
     from sklearn.tree import *
 
-# def _number_to_binary_list(number: int, limit: int) -> list[int]:
-#     if not (0 <= number < (2 ** limit)):
-#         raise ValueError(f"Number {number} is outside the valid range [0, {2**limit - 1}] for limit={limit}.")
-
-#     binary_list = [0] * limit
-    
-#     for i in range(limit):
-#         bit_value = (number >> i) & 1
-        
-#         binary_list[limit - 1 - i] = bit_value
-        
-#     return binary_list
-
-# def _all_combinations(label_list):
-#     """
-#     print(all_combinatorics(["a", "b", "c"]))
-    
-#     [[], ['c'], ['b'], ['b', 'c'], ['a'], ['a', 'c'], ['a', 'b'], ['a', 'b', 'c']]
-#     """
-#     output = []
-#     num_labels = len(label_list)
-#     for num_combination in range(2**num_labels):
-#         part_of_output = []
-#         binary_list = _number_to_binary_list(num_combination, num_labels)
-#         for contains, label in zip(binary_list, label_list):
-#             if(contains == 1):
-#                 part_of_output.append(label)
-#         output.append(part_of_output)
-#     return output
-
-class zDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
+class zDecisionTreeClassifier(ClassifierMixin, BaseEstimator):
     def __init__(self, max_depth=None, min_samples_split=2, class_weight='balanced'):
-        # criterion = "gini"
-        # splitter = "best"
-        # I do not understand why to use a random state, because of deterministic behavior
         self.max_depth = max_depth 
-        self.min_samples_split = 2
+        self.min_samples_split = min_samples_split
         self.class_weight = class_weight
 
     def fit(self, X, y):
@@ -56,8 +23,6 @@ class zDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
         self.class_weights_ = np.array([1.0 for label in self.classes_])
         if(self.class_weight == "balanced"):
             self.class_weights_ = np.array([1.0 / ( (y_transf == class_num).sum() )   for class_num in range(len(self.classes_))])
-
-        # self.feature_is_categorical_ = [type(x_feat) == str for x_feat in list(X[0,:])]
 
         self.root_node_ = self.fit_rec(X, y_transf, 0)
         return self
@@ -73,10 +38,6 @@ class zDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
         return self.predict_single_rec(x, self.root_node_)
 
     def predict_single_rec(self, x, root):
-        we_predict_left = True
-        # if(root.curr_feature_is_categorical):
-        #     we_predict_left = x[root.decision_feature_index] in root.categorical_feature_labels_left_child
-        # else:
         we_predict_left = x[root.decision_feature_index] <= root.linear_feature_upper_threshold_left_child
         
         if(we_predict_left):
@@ -96,9 +57,6 @@ class zDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
         if(root == None):
             return
         print("    " * level, "Feature: ", root.decision_feature_index, end = "  ")
-        # if(self.feature_is_categorical_[root.decision_feature_index]):
-        #     print("Type: Categorical: ", root.categorical_feature_labels_left_child)
-        # else:
         print("Type: Linear: ", root.linear_feature_upper_threshold_left_child)
 
         print()
@@ -111,40 +69,19 @@ class zDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
     def fit_rec(self, X, y, current_depth):
         best_node = None
         node = None
-        if(current_depth >= self.max_depth or X.shape[0] < self.min_samples_split or len(np.unique(y)) == 1):
-            if(current_depth == 0):
-                print("ERROR: ", current_depth >= self.max_depth , X.shape[0] < self.min_samples_split ,len(np.unique(y)) == 1)
-                print("ERROR: ", current_depth ,self.max_depth , X.shape[0] , self.min_samples_split ,len(np.unique(y)) )
+        if((self.max_depth is not None) and current_depth >= self.max_depth or X.shape[0] < self.min_samples_split or len(np.unique(y)) == 1):
+            assert(current_depth != 0)
             return None
         
         current_best_childs_gini_loss = None 
-        # for feature_index, current_feature_categorical in enumerate(self.feature_is_categorical_):
         for feature_index in range(X.shape[1]):
-            # if(current_feature_categorical):
-            #     label_options = np.unique(X[:,feature_index])
-            #     all_label_combinations = _all_combinations(label_list=label_options)
-            #     for label_combination in all_label_combinations:
-            #         node = zDecisionTreeClassifier.Node(
-            #             class_weights=self.class_weights_,
-            #             # curr_feature_is_categorical=True,
-            #             decision_feature_index=feature_index,
-            #             # categorical_feature_labels_left_child=label_combination,
-            #             linear_feature_upper_threshold_left_child=0
-            #         )
-            #         childs_gini_loss_sum = node.sum_childs_gini_loss(X, y)
-            #         if(current_best_childs_gini_loss is None or childs_gini_loss_sum < current_best_childs_gini_loss):
-            #             current_best_childs_gini_loss = childs_gini_loss_sum
-            #             best_node = node
-            # else:
             x = X[:,feature_index]
             x = np.sort(x)
             x_splitting_options = 0.5 * (x[1:] + x[:-1])
             for x_splitting in x_splitting_options:
                 node = zDecisionTreeClassifier.Node(
                     class_weights=self.class_weights_,
-                    # curr_feature_is_categorical=False,
                     decision_feature_index=feature_index,
-                    # categorical_feature_labels_left_child=None,
                     linear_feature_upper_threshold_left_child=x_splitting,
                 )
                 childs_gini_loss_sum = node.sum_childs_gini_loss(X, y)
@@ -163,15 +100,11 @@ class zDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
         return best_node
 
     class Node():
-        def __init__(self, class_weights, # curr_feature_is_categorical, 
-                     decision_feature_index, # categorical_feature_labels_left_child, 
-                     linear_feature_upper_threshold_left_child):
+        def __init__(self, class_weights, decision_feature_index, linear_feature_upper_threshold_left_child):
             self.decision_feature_index = decision_feature_index 
-            # self.categorical_feature_labels_left_child = categorical_feature_labels_left_child
             self.linear_feature_upper_threshold_left_child = linear_feature_upper_threshold_left_child
 
             self.class_weights = class_weights
-            # self.curr_feature_is_categorical = curr_feature_is_categorical
 
             self.left_child = None 
             self.right_child = None
@@ -181,10 +114,6 @@ class zDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
             X_left, X_right, y_left, y_right = None, None, None, None
             left_indices, right_indices = None, None
 
-            # if(self.curr_feature_is_categorical):
-            #     left_indices = x in self.categorical_feature_labels_left_child
-            #     right_indices = x not in self.categorical_feature_labels_left_child
-            # else:
             left_indices = x <= self.linear_feature_upper_threshold_left_child
             right_indices = x > self.linear_feature_upper_threshold_left_child
 
@@ -236,17 +165,15 @@ class zDecisionTreeClassifier(BaseEstimator, ClassifierMixin):
             self.prediction_left_ = int(np.argmax(np.array(y_left_weighted_class_counts)))
             self.prediction_right_ = int(np.argmax(np.array(y_right_weighted_class_counts)))
 
-class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
+class zDecisionTreeRegressor(RegressorMixin, BaseEstimator):
     def __init__(self, max_depth=None, min_samples_split=2):
         # criterion = "gini"
         # splitter = "best"
         # I do not understand why to use a random state, because of deterministic behavior
         self.max_depth = max_depth 
-        self.min_samples_split = 2
+        self.min_samples_split = min_samples_split
 
     def fit(self, X, y):
-        # self.feature_is_categorical_ = [type(x_feat) == str for x_feat in list(X[0,:])]
-
         self.root_node_ = self.fit_rec(X, y, 0)
         return self
 
@@ -260,10 +187,6 @@ class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
         return self.predict_single_rec(x, self.root_node_)
 
     def predict_single_rec(self, x, root):
-        we_predict_left = True
-        # if(root.curr_feature_is_categorical):
-        #     we_predict_left = x[root.decision_feature_index] in root.categorical_feature_labels_left_child
-        # else:
         we_predict_left = x[root.decision_feature_index] <= root.linear_feature_upper_threshold_left_child
 
         if(we_predict_left):
@@ -283,9 +206,6 @@ class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
         if(root == None):
             return
         print("    " * level, "Feature: ", root.decision_feature_index, end = "  ")
-        # if(self.feature_is_categorical_[root.decision_feature_index]):
-        #     print("Type: Categorical: ", root.categorical_feature_labels_left_child)
-        # else:
         print("Type: Linear: ", root.linear_feature_upper_threshold_left_child)
 
 
@@ -299,31 +219,12 @@ class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
     def fit_rec(self, X, y, current_depth):
         best_node = None
         node = None
-        if(current_depth >= self.max_depth or X.shape[0] < self.min_samples_split or len(np.unique(y)) == 1):
-            if(current_depth == 0):
-                print("ERROR: ", current_depth >= self.max_depth , X.shape[0] < self.min_samples_split ,len(np.unique(y)) == 1)
-                print("ERROR: ", current_depth ,self.max_depth , X.shape[0] , self.min_samples_split ,len(np.unique(y)) )
+        if((self.max_depth is not None) and current_depth >= self.max_depth or X.shape[0] < self.min_samples_split or len(np.unique(y)) == 1):
+            assert(current_depth != 0)
             return None
         
         current_best_childs_gini_loss = None 
-        # for feature_index, current_feature_categorical in enumerate(self.feature_is_categorical_):
         for feature_index in range(X.shape[1]):
-            # if(current_feature_categorical):
-            #     label_options = np.unique(X[:,feature_index])
-            #     all_label_combinations = _all_combinations(label_list=label_options)
-            #     for label_combination in all_label_combinations:
-            #         node = zDecisionTreeClassifier.Node(
-            #             class_weights=self.class_weights_,
-            #             curr_feature_is_categorical=True,
-            #             decision_feature_index=feature_index,
-            #             categorical_feature_labels_left_child=label_combination,
-            #             linear_feature_upper_threshold_left_child=0
-            #         )
-            #         childs_gini_loss_sum = node.sum_childs_gini_loss(X, y)
-            #         if(current_best_childs_gini_loss is None or childs_gini_loss_sum < current_best_childs_gini_loss):
-            #             current_best_childs_gini_loss = childs_gini_loss_sum
-            #             best_node = node
-            # else:
             x = X[:,feature_index]
             x = np.sort(x)
             x_splitting_options = 0.5 * (x[1:] + x[:-1])
@@ -334,12 +235,12 @@ class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
                     # categorical_feature_labels_left_child=None,
                     linear_feature_upper_threshold_left_child=x_splitting,
                 )
-                childs_gini_loss_sum = node.sum_childs_error(X, y)
+                childs_gini_loss_sum = node.sum_childs_error(X, y) # DIFF
                 if(current_best_childs_gini_loss is None or childs_gini_loss_sum < current_best_childs_gini_loss):
                     current_best_childs_gini_loss = childs_gini_loss_sum
                     best_node = node
             
-        best_node.calc_and_save_prediction_left_and_prediction_right(X, y)
+        best_node.calc_and_save_prediction_left_and_prediction_right(X, y) # DIFF
         assert(best_node != None)
         assert(best_node != None)
         
@@ -350,13 +251,9 @@ class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
         return best_node
 
     class Node():
-        def __init__(self, #curr_feature_is_categorical, 
-                     decision_feature_index, #categorical_feature_labels_left_child,
-                       linear_feature_upper_threshold_left_child):
+        def __init__(self, decision_feature_index, linear_feature_upper_threshold_left_child):
             self.decision_feature_index = decision_feature_index 
-            # self.categorical_feature_labels_left_child = categorical_feature_labels_left_child
             self.linear_feature_upper_threshold_left_child = linear_feature_upper_threshold_left_child
-            # self.curr_feature_is_categorical = curr_feature_is_categorical
 
             self.left_child = None 
             self.right_child = None
@@ -366,10 +263,6 @@ class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
             X_left, X_right, y_left, y_right = None, None, None, None
             left_indices, right_indices = None, None
 
-            # if(self.curr_feature_is_categorical):
-            #     left_indices = x in self.categorical_feature_labels_left_child
-            #     right_indices = x not in self.categorical_feature_labels_left_child
-            # else:
             left_indices = x <= self.linear_feature_upper_threshold_left_child
             right_indices = x > self.linear_feature_upper_threshold_left_child
 
@@ -379,7 +272,7 @@ class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
             y_right = y[right_indices]
             return X_left, X_right, y_left, y_right
 
-        def mean_squared_error_mean_estimator(self, y):
+        def mean_squared_error_mean_estimator(self, y): # DIFF
             if(y.shape[0] == 0):
                 return 0.0
             assert(y.shape[0] > 0)
@@ -387,7 +280,7 @@ class zDecisionTreeRegressor(BaseEstimator, RegressorMixin):
             squared_errors = (y- mean)**2
             return np.mean(squared_errors)
 
-        def sum_childs_error(self, X, y):
+        def sum_childs_error(self, X, y):  # DIFF
             X_left, X_right, y_left, y_right = self.split(X, y)
             return y_left.shape[0] * self.mean_squared_error_mean_estimator(y_left) + self.mean_squared_error_mean_estimator(y_right) * y_right.shape[0]
         
@@ -449,3 +342,6 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
+
+# TODO : write a superclass to remove duplicated code
+# TODO : add set params and get params method
