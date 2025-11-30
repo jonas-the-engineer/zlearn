@@ -3,28 +3,133 @@ from abc import ABC, abstractmethod
 
 from numpy.testing import assert_array_almost_equal
 import numpy as np
+from sklearn.datasets import load_iris
+from preprocessing import zStandardScaler
+from sklearn.neural_network import MLPRegressor
 
-class MLP:
-    def __init__(hidden_layer_sizes: tuple, random_state: int = 0,
+class zMLPsuperclass:
+    def __init__(self, hidden_layer_sizes: tuple, random_state: int = 0,
                  activation: {"identity", "logistic", "tanh", "relu"} = "relu", 
-                 alpha: float = 0.0001, batch_size: int = 100, shuffle: bool = True,
+                 alpha: float = 0.0001, batch_size: float = 1.0, shuffle: bool = True,
                  learning_rate_init: float = 0.001, max_iter: int = 200):
         """
         solver -> stochastic batch gradient descent
         learning_rate -> constant
         """
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.random_state = random_state
+        self.activation = activation
+        self.alpha_lambda = alpha 
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.learning_rate_init = learning_rate_init
+        self.max_iter = max_iter
+        self.rgen_ = np.random.default_rng(seed=self.random_state)
+
+    def initialize_weights(self, input_dim, output_dim):
+        Ws, bs = [], []
+        dim_in = input_dim
+        for i, dim_out in enumerate(self.hidden_layer_sizes + (output_dim, )):
+            scaling = np.sqrt(1.0 / dim_in)
+            if(self.activation == "relu" and i != len(self.hidden_layer_sizes)):
+                scaling = np.sqrt(2.0 / dim_in)
+            W = self.rgen_.standard_normal(size=(dim_out, dim_in)) * scaling
+            b = np.zeros(shape=(dim_out,))
+            Ws.append(W)
+            bs.append(b)
+
+            dim_in = dim_out
+        self.Ws_ = Ws
+        self.bs_ = bs
 
     @abstractmethod
-    def compute_output_layer(self, z_in: np.ndarray):
+    def get_output_activation_function(self):
+        pass
+
+    @abstractmethod
+    def compute_loss(self, a_out, y):
         pass 
 
     @abstractmethod
-    def compute_loss(self, X, y):
+    def compute_dLoss_dAout_output_layer(self, a_out, y):
         pass 
 
-    @abstractmethod
-    def compute_dLoss_doutput_layer_z_in(self, z_in, a_out, z_out):
-        pass 
+    def get_batches(self, X, y):
+        assert(isinstance(X, np.ndarray) and isinstance(y, np.ndarray))
+        N_total = X.shape[0]
+        size = int(self.batch_size * N_total)
+        if(self.shuffle):
+            permutation = self.rgen_.permutation(N_total)
+            X = X[permutation]
+            y = y[permutation]
+        s = 0
+        X_batches = []
+        y_batches = []
+        while(s < N_total):
+            e = s + size
+            if(e > N_total):
+                break
+            X_batches.append(X[s:e])
+            y_batches.append(y[s:e])
+            s = e
+        return X_batches, y_batches
+
+    def fit(self, X, y):
+        learning_rate = self.learning_rate_init
+        assert(isinstance(X, np.ndarray) and isinstance(y, np.ndarray))
+        if(len(y.shape) == 1): 
+            y = y[:, np.newaxis]
+        input_dim, output_dim = X.shape[1], y.shape[1]
+        self.initialize_weights(input_dim, output_dim)
+        self.loss_curve_ = []
+        
+        layer_sizes = self.hidden_layer_sizes + (output_dim,)
+        layer_activations = (self.activation,) * len(self.hidden_layer_sizes) + (self.get_output_activation_function(),)
+
+        for iteration in range(self.max_iter):
+            X_batches, y_batches = self.get_batches(X, y)
+            for X_batch, y_batch in zip(X_batches, y_batches):
+                # forward propagation
+                a_in = X_batch
+                z_outs = []
+                a_outs = []
+                a_ins = []
+                for W, b, activation in zip(self.Ws_, self.bs_, layer_activations):
+                    z_out, a_out = self.compute_activation(a_in, W, b, activation)
+                    z_outs.append(z_out)
+                    a_outs.append(a_out)
+                    a_ins.append(a_in)
+                    a_in = a_out
+                
+                # loss computation 
+                loss = self.compute_loss(a_out=a_in, y=y_batch)
+                self.loss_curve_.append(loss)
+                
+                # backpropagation
+                dLoss_dAout_output_layer = self.compute_dLoss_dAout_output_layer(a_out=a_in, y=y_batch)
+                dLoss_dAout = dLoss_dAout_output_layer
+
+                zipped_infos = tuple(zip(self.Ws_, self.bs_, layer_activations, a_ins, z_outs, a_outs))
+                N = y_batch.shape[0]
+                for W, b, activation, a_in, z_out, a_out in zipped_infos[::-1]:
+                    dLoss_dAin, dLoss_dW, dLoss_db = self.compute_derivations_batch(a_in, z_out, a_out, W, dLoss_dAout, activation)
+
+                    dW = learning_rate * (- dLoss_dW - self.alpha_lambda * (1.0 / N) * W * 2.0)
+                    db = learning_rate * (- dLoss_db)
+                    W += dW 
+                    b += db
+
+                    dLoss_dAout = dLoss_dAin # the ouput of the previous layer is the current input
+        return self
+
+    def predict(self, X):
+        assert(isinstance(X, np.ndarray))
+        a_in = X
+        layer_activations = (self.activation,) * len(self.hidden_layer_sizes) + (self.get_output_activation_function(),)
+        for W, b, activation in zip(self.Ws_, self.bs_, layer_activations):
+            z_out, a_out = self.compute_activation(a_in, W, b, activation)
+            a_in = a_out
+        return a_in
 
     def activation_function_derivation(self, a_out, z_out, function: {"identity", "logistic", "tanh", "relu"}):
         """
@@ -42,7 +147,7 @@ class MLP:
         if(function == "identity"):
             return np.ones(shape=z_out.shape, dtype=z_out.dtype)
         
-    def activation_function(self, z_in, function: {"identity", "logistic", "tanh", "relu", "softmax"}):
+    def compute_pre_activation(self, z_in, function: {"identity", "logistic", "tanh", "relu", "softmax"}):
         assert(isinstance(z_in, np.ndarray))
         assert(function in {"identity", "logistic", "tanh", "relu", "softmax"})
         if(function == "logistic"):
@@ -58,11 +163,10 @@ class MLP:
             sum_e_raised_to_z = np.sum(e_raised_to_z, axis=1)
             a_out = e_raised_to_z / sum_e_raised_to_z
             return a_out
-        assert(False)
         
     def compute_activation(self, a_in, W, b, function: {"identity", "logistic", "tanh", "relu", "softmax"}):
         z_out = a_in @ W.T + b 
-        return z_out, self.activation_function(z_out, function)
+        return z_out, self.compute_pre_activation(z_out, function)
         
     def compute_derivations_single_sample(self, a_in, z_out, a_out, W, dLoss_dAout, 
                                           function: {"identity", "logistic", "tanh", "relu"}):
@@ -84,33 +188,6 @@ class MLP:
 
         return dLoss_dAin, dLoss_dW, dLoss_db
     
-    def compute_derivations_batch1(self, a_in, z_out, a_out, W, dLoss_dAout, 
-                                          function: {"identity", "logistic", "tanh", "relu"}):
-        """
-        The implementation is not perfectly optimized for performance, but for readability.
-        """
-        dZout_dAin = W
-        dAout_dZout_vector = self.activation_function_derivation(a_out, z_out, function)
-
-        # Convert vector jacobian to full jacobian matrices for each sample in batch
-        N, dimOut = dAout_dZout_vector.shape
-        dAout_dZout = np.einsum('ij, jk -> ijk', dAout_dZout_vector, np.eye(dimOut))
-
-        dAout_dAin = dAout_dZout @ dZout_dAin # [N, dimOut, dimOut] @ [N, dimOUt, dimIn] = [N, dimOut, dimIn] (numpy broadcasting here)
-
-        dLoss_dZout = dLoss_dAout * dAout_dZout_vector # [N, dimAout] * [N, dimAout] = [N, dimAout]
-        dLoss_dW = dLoss_dZout[:, :, np.newaxis] @ a_in[:, np.newaxis, :] # [N, dimAout, 1] @ [N, 1 dimAin] = [N, dimAout, dimAin]
-
-        # dZout_db -> identity matrix -> therefore both derivations are identical
-        dLoss_db = dLoss_dZout
-
-        dLoss_dAin = dLoss_dAout[:, np.newaxis, :] @ dAout_dAin # [N, 1, dimOut] @ [N, dimOut, dimIn] = [N, 1, dimIn]
-        dLoss_dAin = dLoss_dAin.reshape((dLoss_dAin.shape[0], dLoss_dAin.shape[2])) # [N, dimIn]
-
-        dLoss_dW = np.mean(dLoss_dW, axis=0)
-        dLoss_db = np.mean(dLoss_db, axis=0)
-        return dLoss_dAin, dLoss_dW, dLoss_db
-
     def compute_derivations_batch(self, a_in, z_out, a_out, W, dLoss_dAout, 
                                           function: {"identity", "logistic", "tanh", "relu", "softmax"}):
         """
@@ -149,14 +226,54 @@ class MLP:
         dLoss_dW = np.mean(dLoss_dW, axis=0)
         dLoss_db = np.mean(dLoss_db, axis=0)
         return dLoss_dAin, dLoss_dW, dLoss_db
+    
+class zMLPRegressor(RegressorMixin, BaseEstimator, zMLPsuperclass):
+    def __init__(self, hidden_layer_sizes: tuple, random_state: int = 0,
+                 activation: {"identity", "logistic", "tanh", "relu"} = "relu", 
+                 alpha: float = 0.0001, batch_size: int = 100, shuffle: bool = True,
+                 learning_rate_init: float = 0.001, max_iter: int = 200):
+        super().__init__(hidden_layer_sizes, random_state, activation, alpha, batch_size, shuffle, learning_rate_init, max_iter)
+    
+    def get_output_activation_function(self):
+        return "identity"
 
+    def compute_dLoss_dAout_output_layer(self, a_out, y):
+        assert(isinstance(a_out, np.ndarray) and isinstance(y, np.ndarray))
+        N = a_out.shape[0]
+        dLoss_dAout = (1.0 / N) * (a_out - y) * 2.0
+        return dLoss_dAout
+    
+    def compute_loss(self, a_out, y):
+        assert(isinstance(a_out, np.ndarray) and isinstance(y, np.ndarray))
+        N = a_out.shape[0]
+        Loss = np.mean((a_out - y)**2, axis=(0, 1))
+        return Loss
+    
+            
 
+if __name__ == "__main__":
+    X, y = load_iris(return_X_y=True)
+    use_custom_regressor = True
+    nn = zMLPRegressor(hidden_layer_sizes=(3, 2), activation="identity", batch_size=0.05, learning_rate_init=0.001, alpha=0.1, max_iter=200)
+    if(not use_custom_regressor):
+        nn = MLPRegressor(hidden_layer_sizes=(3, 2), activation="identity", batch_size=(int)(0.05 * 150), learning_rate_init=0.001, learning_rate="constant",
+                          alpha=0.1, max_iter=200)
+    sc = zStandardScaler()
+    X = sc.fit_transform(X)
+    nn.fit(X, y)
+    nn.predict(X)
+    print(nn.score(X, y))
+    
+    import matplotlib.pyplot as plt 
+    plt.plot(nn.loss_curve_)
+    plt.show()
 
+# TODO: change dividing by N_batch_size to dividing by N_total_size --> otherwise the model overshoots
 
 
 def setup_batch_data(function, N=4, dimIn=2, dimOut=3):
     """Sets up batch data (N=4, dimIn=2, dimOut=3) and common parameters."""
-    m = MLP()
+    m = zMLPsuperclass()
     
     # Batch size N=4. dimIn=2, dimOut=3
     # a_in: [4, 2]
@@ -289,7 +406,7 @@ def test_logistic_batch_4x2x3():
         print(f"dAin Error: {dLoss_dAin} != {expected_dAin}")
         raise e
 
-if __name__ == '__main__':
+if __name__ == '__main__' and False:
     try:
         # Calling the new, specifically named test function
         test_logistic_batch_4x2x3() 
@@ -308,7 +425,7 @@ Here are some tests.
 
 def setup_batch_data(function, N=4, dimIn=2, dimOut=3):
     """Sets up batch data (N=4, dimIn=2, dimOut=3) and common parameters."""
-    m = MLP()
+    m = zMLPsuperclass()
     
     # Batch size N=4. dimIn=2, dimOut=3
     # a_in: [4, 2]
@@ -412,7 +529,7 @@ def test_logistic_batch_4x2x3():
 
 def setup_test_data(activation_function):
     """Sets up common data and calculates activation outputs."""
-    m = MLP()
+    m = zMLPsuperclass()
     
     # Common Inputs (N_in=3, N_out=2)
     a_in = np.array([0.5, 1.0, 0.2])
@@ -422,7 +539,7 @@ def setup_test_data(activation_function):
 
     # Calculate Z_out and A_out 
     z_out = a_in @ W.T + b 
-    a_out = m.activation_function(z_out, activation_function)
+    a_out = m.compute_pre_activation(z_out, activation_function)
     
     return m, a_in, z_out, a_out, W, dL_dAout, activation_function
 
