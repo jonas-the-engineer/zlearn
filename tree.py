@@ -160,6 +160,9 @@ class zDecisionTreeRegressor(RegressorMixin, BaseEstimator, zDecisionTreeSupercl
         return np.mean((y_pred - y_leaf)**2)
     
 class zDecisionTreeClassifier(ClassifierMixin, BaseEstimator, zDecisionTreeSuperclass):
+    """
+    Only useful for classification with more than 2 possible labels, not for multiclass_classification
+    """
     def __init__(self, max_depth=None, min_samples_split=2, class_weight: str = "balanced"):
         super().__init__(max_depth=max_depth, min_samples_split=min_samples_split)
         self.class_weight = class_weight
@@ -224,7 +227,7 @@ if __name__ == "__main__":
     X_train, X_test, y_train, y_test = ztrain_test_split(X, y, test_size=0.2, random_state=1)
     print(X.shape, y.shape, X_train.shape, y_train.shape, X_test.shape, y_test.shape)
 
-    dt = zDecisionTreeRegressor(max_depth=4, min_samples_split=5)
+    dt = zRandomForestRegressor(max_depth=4, min_samples_split=5, num_estimators=50, bootstrap_size=0.5, random_state=0)
     dt.fit(X_train, y_train)
     print(dt.score(X_train, y_train))
     print(dt.score(X_test, y_test))  # both scores are greater than 0 -> the dt predicts valuable information, but is not a good predictor as a single tree
