@@ -204,26 +204,6 @@ class zMLPsuperclass:
     def compute_activation(self, a_in, W, b, function: {"identity", "logistic", "tanh", "relu", "softmax"}):
         z_out = a_in @ W.T + b 
         return z_out, self.compute_pre_activation(z_out, function)
-        
-    def compute_derivations_single_sample(self, a_in, z_out, a_out, W, dLoss_dAout, 
-                                          function: {"identity", "logistic", "tanh", "relu"}):
-        """
-        The implementation is not perfectly optimized for performance, but for readability.
-        """
-        dZout_dAin = W
-        dAout_dZout = self.activation_function_derivation(a_out, z_out, function)
-        dAout_dZout = np.diag(dAout_dZout) # compute jacobi matrix
-        dAout_dAin = dAout_dZout @ dZout_dAin # matrix = matrix * matrix
-
-        dLoss_dZout = dLoss_dAout @ dAout_dZout # vector = vector * matrixs
-        dLoss_dW = dLoss_dZout[:, np.newaxis] @ a_in[np.newaxis, :] # matrix = vector * vector
-
-        # dZout_db = np.diagonal_ones_matrix
-        dLoss_db = dLoss_dAout @ dAout_dZout # vector = vector * matrix  # identical to dLoss_dZout
-
-        dLoss_dAin = dLoss_dAout @ dAout_dAin # vector = vector * matrix
-
-        return dLoss_dAin, dLoss_dW, dLoss_db
     
     def compute_derivations_batch(self, a_in, z_out, a_out, W, dLoss_dAout, 
                                           function: {"identity", "logistic", "tanh", "relu", "softmax"}, y=None):
@@ -343,7 +323,6 @@ def run_classifier_test():
     import matplotlib.pyplot as plt 
     plt.plot(cl.loss_curve_)
     plt.show()
-
 
 def run_regressor_test():
     X, y = load_iris(return_X_y=True)
